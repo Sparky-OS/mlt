@@ -53,6 +53,7 @@
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/samplefmt.h>
+#include <libavutil/stereo3d.h>
 #include <libavutil/version.h>
 #include <libswscale/swscale.h>
 
@@ -926,6 +927,45 @@ static int open_audio(mlt_properties properties,
 /** Add a video output stream 
 */
 
+
+/** Fill the Stereo 3D description from the consumer's "stereo3d" and "stereo3d_invert" properties:
+    how the frames pack the two views of a stereoscopic 3D video, named as the producer's
+    "meta.media.stereo3d.type" property names it (the frame packing arrangement types of H.264
+    Table D-8 and H.265 Table D.8, which Matroska's StereoMode, RFC 9559, and FFmpeg's AVStereo3D
+    share). Returns 0 when the consumer is not asked for any.
+*/
+static int get_stereo3d(mlt_properties properties, AVStereo3D *stereo)
+{
+    static const struct {
+        const char *name;
+        enum AVStereo3DType type;
+    } types[] = {
+        {"side_by_side", AV_STEREO3D_SIDEBYSIDE},
+        {"top_and_bottom", AV_STEREO3D_TOPBOTTOM},
+        {"frame_sequence", AV_STEREO3D_FRAMESEQUENCE},
+        {"checkerboard", AV_STEREO3D_CHECKERBOARD},
+        {"side_by_side_quincunx", AV_STEREO3D_SIDEBYSIDE_QUINCUNX},
+        {"lines", AV_STEREO3D_LINES},
+        {"columns", AV_STEREO3D_COLUMNS},
+    };
+    const char *name = mlt_properties_get(properties, "stereo3d");
+
+    if (!name)
+        return 0;
+    for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+        if (!strcmp(name, types[i].name)) {
+            stereo->type = types[i].type;
+            stereo->view = AV_STEREO3D_VIEW_PACKED;
+            stereo->flags = mlt_properties_get_int(properties, "stereo3d_invert")
+                                ? AV_STEREO3D_FLAG_INVERT
+                                : 0;
+            return 1;
+        }
+    }
+    mlt_log_warning(NULL, "Unknown stereo3d type \"%s\"\n", name);
+    return 0;
+}
+
 static AVStream *add_video_stream(mlt_consumer consumer,
                                   AVFormatContext *oc,
                                   const AVCodec *codec,
@@ -1252,6 +1292,19 @@ static int open_video(mlt_properties properties,
         if (!result) {
             mlt_log_warning(NULL, "Failed to copy encoder parameters to output video stream\n");
         }
+#if LIBAVCODEC_VERSION_INT >= ((60 << 16) + (31 << 8) + 102)
+        // The muxers write what the stream says about stereoscopic 3D (Matroska's StereoMode)
+        AVStereo3D stereo;
+        if (result && get_stereo3d(properties, &stereo)) {
+            AVPacketSideData *sd = av_packet_side_data_new(&st->codecpar->coded_side_data,
+                                                           &st->codecpar->nb_coded_side_data,
+                                                           AV_PKT_DATA_STEREO3D,
+                                                           sizeof(AVStereo3D),
+                                                           0);
+            if (sd)
+                memcpy(sd->data, &stereo, sizeof(AVStereo3D));
+        }
+#endif
     } else {
         mlt_log_warning(NULL, "%s: Unable to encode video - disabling video output.\n", __FILE__);
     }
@@ -2242,6 +2295,20 @@ static int encode_video(encode_ctx_t *enc_ctx,
         // Set the quality
         avframe->quality = c->global_quality;
         avframe->pts = enc_ctx->frame_count;
+
+        // The encoders write the packing of a stereoscopic 3D video from the frame, x264 as the
+        // frame packing arrangement SEI
+        AVStereo3D stereo;
+        if (get_stereo3d(properties, &stereo)) {
+            AVStereo3D *frame_stereo;
+            av_frame_remove_side_data(avframe, AV_FRAME_DATA_STEREO3D);
+            frame_stereo = av_stereo3d_create_side_data(avframe);
+            if (frame_stereo) {
+                frame_stereo->type = stereo.type;
+                frame_stereo->view = stereo.view;
+                frame_stereo->flags = stereo.flags;
+            }
+        }
 
         // Set frame interlace hints
 #if LIBAVUTIL_VERSION_INT >= ((58 << 16) + (7 << 8) + 100)
