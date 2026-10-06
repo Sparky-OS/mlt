@@ -36,3 +36,16 @@ parameters:
     description: left, right, or side_by_side (both views, the left eye first)
     default: side_by_side
     mutable: yes
+  - identifier: resource
+    title: Frame sequence file
+    type: string
+    description: >
+      For a frame sequence, the file the frames are read from, when the frames the filter gets are made of many clips (a project)
+      and so do not say it. By default it is the resource of the frame's producer.
+    mutable: yes
+  - identifier: offset
+    title: Position of the first frame
+    type: integer
+    description: With resource, the position in the filter's frames of the first frame of the file.
+    default: 0
+    mutable: yes
