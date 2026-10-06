@@ -676,11 +676,36 @@ static int get_mlt_audio_format(int av_sample_fmt)
     }
 }
 
+// FFmpeg 8 removed AVCodec.pix_fmts and AVCodec.sample_fmts for avcodec_get_supported_config()
+static const enum AVPixelFormat *codec_pix_fmts(const AVCodec *codec)
+{
+#if LIBAVCODEC_VERSION_INT >= ((61 << 16) + (13 << 8) + 100)
+    const void *configs = NULL;
+    if (avcodec_get_supported_config(NULL, codec, AV_CODEC_CONFIG_PIX_FORMAT, 0, &configs, NULL) < 0)
+        return NULL;
+    return configs;
+#else
+    return codec->pix_fmts;
+#endif
+}
+
+static const enum AVSampleFormat *codec_sample_fmts(const AVCodec *codec)
+{
+#if LIBAVCODEC_VERSION_INT >= ((61 << 16) + (13 << 8) + 100)
+    const void *configs = NULL;
+    if (avcodec_get_supported_config(NULL, codec, AV_CODEC_CONFIG_SAMPLE_FORMAT, 0, &configs, NULL) < 0)
+        return NULL;
+    return configs;
+#else
+    return codec->sample_fmts;
+#endif
+}
+
 static int pick_sample_fmt(mlt_properties properties, const AVCodec *codec)
 {
     int sample_fmt = AV_SAMPLE_FMT_S16;
     const char *format = mlt_properties_get(properties, "mlt_audio_format");
-    const int *p = codec->sample_fmts;
+    const enum AVSampleFormat *p = codec_sample_fmts(codec);
     const char *sample_fmt_str = mlt_properties_get(properties, "sample_fmt");
 
     if (sample_fmt_str)
@@ -705,7 +730,7 @@ static int pick_sample_fmt(mlt_properties properties, const AVCodec *codec)
             return sample_fmt;
     }
     // no match - pick first one we support
-    for (p = codec->sample_fmts; *p != -1; p++) {
+    for (p = codec_sample_fmts(codec); *p != -1; p++) {
         switch (*p) {
         case AV_SAMPLE_FMT_U8:
         case AV_SAMPLE_FMT_S16:
@@ -981,7 +1006,7 @@ static AVStream *add_video_stream(mlt_consumer consumer,
 
         // Default to the codec's first pix_fmt if possible.
         c->pix_fmt = pix_fmt ? av_get_pix_fmt(pix_fmt)
-                     : codec ? (codec->pix_fmts ? codec->pix_fmts[0] : AV_PIX_FMT_YUV422P)
+                     : codec ? (codec_pix_fmts(codec) ? codec_pix_fmts(codec)[0] : AV_PIX_FMT_YUV422P)
                              : AV_PIX_FMT_YUV420P;
 
         if (AV_PIX_FMT_VAAPI == c->pix_fmt) {
@@ -1199,14 +1224,14 @@ static int open_video(mlt_properties properties,
                          AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM);
     }
 
-    if (codec && codec->pix_fmts) {
-        const enum AVPixelFormat *p = codec->pix_fmts;
+    if (codec && codec_pix_fmts(codec)) {
+        const enum AVPixelFormat *p = codec_pix_fmts(codec);
         for (; *p != -1; p++) {
             if (*p == video_enc->pix_fmt)
                 break;
         }
         if (*p == -1)
-            video_enc->pix_fmt = codec->pix_fmts[0];
+            video_enc->pix_fmt = codec_pix_fmts(codec)[0];
     }
 
     const AVPixFmtDescriptor *srcDesc = av_pix_fmt_desc_get(video_enc->pix_fmt);
