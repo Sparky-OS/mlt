@@ -27,6 +27,7 @@ add_library(mltcore MODULE
   filter_panner.c
   filter_pillar_echo.c
   filter_rescale.c
+  filter_stereo3d_unpack.c
   filter_resize.c
   filter_transition.c
   filter_watermark.c
