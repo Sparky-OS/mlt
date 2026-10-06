@@ -202,7 +202,10 @@ static int filter_get_image(mlt_frame frame,
         // from a producer of our own.
         mlt_properties frame_properties = MLT_FRAME_PROPERTIES(frame);
         const char *view = mlt_properties_get(frame_properties, "meta.media.stereo3d.view");
-        const mlt_position position = mlt_frame_original_position(frame);
+        // A player that has a project of many clips says which file, and where its first frame is, with resource and offset
+        const char *source = mlt_properties_get(properties, "resource");
+        const int offset = source && *source ? mlt_properties_get_int(properties, "offset") : 0;
+        const mlt_position position = mlt_frame_original_position(frame) - offset;
         int is_right;
         if (view)
             is_right = !strcmp(view, "right");
@@ -214,7 +217,8 @@ static int filter_get_image(mlt_frame frame,
         pdata->latest_position[is_right] = position;
         if (!pdata->latest[!is_right].data || pdata->latest_position[!is_right] != other_position) {
             mlt_producer original = mlt_frame_get_original_producer(frame);
-            const char *resource = original ? mlt_properties_get(MLT_PRODUCER_PROPERTIES(original), "resource") : NULL;
+            const char *resource = source && *source ? source
+                : original ? mlt_properties_get(MLT_PRODUCER_PROPERTIES(original), "resource") : NULL;
             if (resource && other_position >= 0) {
                 if (!pdata->partner || !pdata->partner_resource || strcmp(pdata->partner_resource, resource)) {
                     mlt_producer_close(pdata->partner);
