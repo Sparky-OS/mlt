@@ -105,6 +105,10 @@ extern mlt_filter filter_mask_start_init(mlt_profile profile,
                                          mlt_service_type type,
                                          const char *id,
                                          char *arg);
+extern mlt_filter filter_stereo3d_unpack_init(mlt_profile profile,
+                                              mlt_service_type type,
+                                              const char *id,
+                                              char *arg);
 extern mlt_filter filter_mirror_init(mlt_profile profile,
                                      mlt_service_type type,
                                      const char *id,
@@ -233,6 +237,7 @@ MLTCORE_EXPORT MLT_REPOSITORY
     MLT_REGISTER(mlt_service_filter_type, "mask_apply", filter_mask_apply_init);
     MLT_REGISTER(mlt_service_filter_type, "mask_start", filter_mask_start_init);
     MLT_REGISTER(mlt_service_filter_type, "mirror", filter_mirror_init);
+    MLT_REGISTER(mlt_service_filter_type, "stereo3d_unpack", filter_stereo3d_unpack_init);
     MLT_REGISTER(mlt_service_filter_type, "mono", filter_mono_init);
     MLT_REGISTER(mlt_service_filter_type, "obscure", filter_obscure_init);
     MLT_REGISTER(mlt_service_filter_type, "panner", filter_panner_init);
@@ -310,6 +315,7 @@ MLTCORE_EXPORT MLT_REPOSITORY
     MLT_REGISTER_METADATA(mlt_service_filter_type, "mask_apply", metadata, "filter_mask_apply.yml");
     MLT_REGISTER_METADATA(mlt_service_filter_type, "mask_start", metadata, "filter_mask_start.yml");
     MLT_REGISTER_METADATA(mlt_service_filter_type, "mirror", metadata, "filter_mirror.yml");
+    MLT_REGISTER_METADATA(mlt_service_filter_type, "stereo3d_unpack", metadata, "filter_stereo3d_unpack.yml");
     MLT_REGISTER_METADATA(mlt_service_filter_type, "mono", metadata, "filter_mono.yml");
     MLT_REGISTER_METADATA(mlt_service_filter_type, "obscure", metadata, "filter_obscure.yml");
     MLT_REGISTER_METADATA(mlt_service_filter_type, "panner", metadata, "filter_panner.yml");
