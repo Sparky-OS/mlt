@@ -50,6 +50,7 @@
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/samplefmt.h>
+#include <libavutil/stereo3d.h>
 #include <libavutil/version.h>
 #include <libswscale/swscale.h>
 
@@ -157,6 +158,63 @@ typedef struct producer_avformat_s *producer_avformat;
 static int list_components(char *file);
 static int producer_open(
     producer_avformat self, mlt_profile profile, const char *URL, int take_lock, int test_open);
+
+/** The name of a stereoscopic 3D packing, as the "meta.media.stereo3d.type" property and the
+    consumer's "stereo3d" property give it: the frame packing arrangement types of H.264 Table D-8
+    and H.265 Table D.8, and Matroska's StereoMode (RFC 9559), which FFmpeg's AVStereo3D shares.
+*/
+static const char *stereo3d_type_name(enum AVStereo3DType type)
+{
+    switch (type) {
+    case AV_STEREO3D_SIDEBYSIDE:
+        return "side_by_side";
+    case AV_STEREO3D_TOPBOTTOM:
+        return "top_and_bottom";
+    case AV_STEREO3D_FRAMESEQUENCE:
+        return "frame_sequence";
+    case AV_STEREO3D_CHECKERBOARD:
+        return "checkerboard";
+    case AV_STEREO3D_SIDEBYSIDE_QUINCUNX:
+        return "side_by_side_quincunx";
+    case AV_STEREO3D_LINES:
+        return "lines";
+    case AV_STEREO3D_COLUMNS:
+        return "columns";
+    default:
+        return NULL;
+    }
+}
+
+/** Set the producer's stereoscopic 3D properties from the Stereo 3D side data of a stream or of a
+    decoded frame. The frame packing arrangement SEI is sent with the keyframes and holds until
+    another one replaces it (H.264 D.2.26), so the properties keep what was last seen.
+*/
+static void set_stereo3d_properties(mlt_properties properties, const AVStereo3D *stereo)
+{
+    const char *type = stereo3d_type_name(stereo->type);
+    int invert = !!(stereo->flags & AV_STEREO3D_FLAG_INVERT);
+
+    if (!type) {
+        // Not stereoscopic, or a packing without a name here
+        if (mlt_properties_get(properties, "meta.media.stereo3d.type"))
+            mlt_properties_set(properties, "meta.media.stereo3d.type", NULL);
+        return;
+    }
+    if (!mlt_properties_get(properties, "meta.media.stereo3d.type")
+        || strcmp(type, mlt_properties_get(properties, "meta.media.stereo3d.type"))
+        || invert != mlt_properties_get_int(properties, "meta.media.stereo3d.invert")) {
+        mlt_properties_set(properties, "meta.media.stereo3d.type", type);
+        mlt_properties_set_int(properties, "meta.media.stereo3d.invert", invert);
+    }
+}
+
+static void set_frame_stereo3d_properties(mlt_properties properties, const AVFrame *frame)
+{
+    const AVFrameSideData *sd = av_frame_get_side_data(frame, AV_FRAME_DATA_STEREO3D);
+    if (sd && sd->size >= sizeof(AVStereo3D))
+        set_stereo3d_properties(properties, (const AVStereo3D *) sd->data);
+}
+
 static int producer_get_frame(mlt_producer producer, mlt_frame_ptr frame, int index);
 static int producer_probe(mlt_producer producer);
 static void producer_avformat_close(producer_avformat);
@@ -582,6 +640,14 @@ static mlt_properties find_default_streams(producer_avformat self)
             mlt_properties_set_int(meta_media, key, codec_params->height);
             snprintf(key, sizeof(key), "meta.media.%u.codec.rotate", i);
             mlt_properties_set_int(meta_media, key, get_rotation(NULL, context->streams[i]));
+            if (codec_params->codec_type == AVMEDIA_TYPE_VIDEO && i == (unsigned) self->video_index) {
+                // The stereoscopic 3D packing the container gives, Matroska's StereoMode for one
+                const AVPacketSideData *stereo = av_packet_side_data_get(codec_params->coded_side_data,
+                                                                         codec_params->nb_coded_side_data,
+                                                                         AV_PKT_DATA_STEREO3D);
+                if (stereo && stereo->size >= sizeof(AVStereo3D))
+                    set_stereo3d_properties(meta_media, (const AVStereo3D *) stereo->data);
+            }
             //				snprintf( key, sizeof(key), "meta.media.%u.codec.frame_rate", i );
             //				AVRational frame_rate = { codec_context->time_base.den, codec_context->time_base.num * codec_context->ticks_per_frame };
             //				mlt_properties_set_double( meta_media, key, av_q2d( frame_rate ) );
@@ -3084,6 +3150,7 @@ static int producer_get_image(mlt_frame frame,
                             }
                             got_picture = 1;
                             decode_errors = 0;
+                            set_frame_stereo3d_properties(properties, self->video_frame);
                         }
                     }
                 }
