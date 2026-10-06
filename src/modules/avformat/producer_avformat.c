@@ -208,11 +208,20 @@ static void set_stereo3d_properties(mlt_properties properties, const AVStereo3D 
     }
 }
 
-static void set_frame_stereo3d_properties(mlt_properties properties, const AVFrame *frame)
+static void set_frame_stereo3d_properties(mlt_properties properties,
+                                          mlt_properties frame_properties,
+                                          const AVFrame *frame)
 {
     const AVFrameSideData *sd = av_frame_get_side_data(frame, AV_FRAME_DATA_STEREO3D);
-    if (sd && sd->size >= sizeof(AVStereo3D))
-        set_stereo3d_properties(properties, (const AVStereo3D *) sd->data);
+    if (sd && sd->size >= sizeof(AVStereo3D)) {
+        const AVStereo3D *stereo = (const AVStereo3D *) sd->data;
+        set_stereo3d_properties(properties, stereo);
+        // A frame of a frame sequence (temporal interleaving, H.264 D.2.26) holds one view, which the SEI names
+        if (stereo->view == AV_STEREO3D_VIEW_LEFT)
+            mlt_properties_set(frame_properties, "meta.media.stereo3d.view", "left");
+        else if (stereo->view == AV_STEREO3D_VIEW_RIGHT)
+            mlt_properties_set(frame_properties, "meta.media.stereo3d.view", "right");
+    }
 }
 
 static int producer_get_frame(mlt_producer producer, mlt_frame_ptr frame, int index);
@@ -3150,7 +3159,6 @@ static int producer_get_image(mlt_frame frame,
                             }
                             got_picture = 1;
                             decode_errors = 0;
-                            set_frame_stereo3d_properties(properties, self->video_frame);
                         }
                     }
                 }
@@ -3200,6 +3208,8 @@ static int producer_get_image(mlt_frame frame,
 
             // Now handle the picture if we have one
             if (got_picture) {
+                // What the picture, the one this frame is made of, says about stereoscopic 3D
+                set_frame_stereo3d_properties(properties, frame_properties, self->video_frame);
                 // Detect and correct scan type
                 if (mlt_properties_get(properties, "force_progressive")) {
                     self->progressive = !!mlt_properties_get_int(properties, "force_progressive");
