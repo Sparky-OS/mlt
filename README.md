@@ -1,3 +1,28 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/sparky-stereo-os/sparkyos-swirl-light-128.png">
+  <img src=".github/sparky-stereo-os/sparkyos-swirl-dark-128.png" alt="SparkyOS" width="128" height="128">
+</picture>
+
+## Sparky Stereo OS
+
+This is the stereo version of MLT by Sparky Stereo OS, forked from [mltframework/mlt](https://github.com/mltframework/mlt).
+It reads and writes the stereoscopic 3D packing of a video, as the H.264 and H.265 frame packing SEI and Matroska StereoMode carry it, and adds a filter that unpacks it.
+
+Where it comes from:
+
+- [MLT](https://www.mltframework.org) is made by Meltytech, LLC and its contributors. Its authors include Charles Yates and Dan Dennedy; see [AUTHORS](AUTHORS).
+- [Debian](https://www.debian.org/) is the base of the system.
+- [SparkyLinux](https://sparkylinux.org/), by Paweł "pavroo" Pijanowski, builds on Debian.
+- [Sparky Stereo OS](https://github.com/Sparky-OS/sparky-stereo-os) is the stereo 3D edition of SparkyLinux: SparkyOS, powered by Debian.
+
+The `stereo3d-7.40` branch holds the version the distribution builds.
+The branch starts from MLT 7.40.0.
+The licence is unchanged; see [COPYING](COPYING).
+
+Sparky Stereo OS, Daniel Ramos's edition of SparkyLinux (by Paweł "pavroo" Pijanowski).
+
+---
+
 # MLT FRAMEWORK
 
 MLT is a LGPL multimedia framework designed for video editing.
