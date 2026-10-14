@@ -24,6 +24,10 @@
 #include <framework/mlt_pool.h>
 #include <framework/mlt_producer.h>
 
+#ifdef HAVE_STEREO_POLICY
+#include <stereo-policy.h>
+#endif
+
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,18 +87,40 @@ typedef struct
     char *partner_resource;
 } private_data;
 
-// The stream does not say whether the views of a side by side or top and bottom frame are half or full size, so the
-// shape of the frame decides: a side by side frame at least 2.5 times as wide as high, or a top and bottom frame at
-// most 1.2 times as wide as high, holds full size views. The views of the other packings are shown at the frame's size.
-static void view_size(packing_t packing, int width, int height, int *view_width, int *view_height)
+// Whether the views of a side by side or top and bottom frame are half or full size: the producer says when it can
+// (meta.media.stereo3d.views, from what the stream says: a Matroska track's plane size, then the shape), else the
+// edition's shared rule judges the frame as it is (the stereo policy library). The views of the other packings are shown
+// at the frame's size. Without the library, views are taken for half size.
+static int full_views(mlt_frame frame, packing_t packing, int width, int height)
 {
-    double aspect = height > 0 ? (double) width / height : 1.0;
+    mlt_producer original = mlt_frame_get_original_producer(frame);
+    const char *views = original ? mlt_properties_get(MLT_PRODUCER_PROPERTIES(original), "meta.media.stereo3d.views") : NULL;
+    if (views)
+        return !strcmp(views, "full");
+#ifdef HAVE_STEREO_POLICY
+    int layout = packing == packing_side_by_side ? STEREO_POLICY_LAYOUT_SIDE_BY_SIDE
+                 : packing == packing_top_and_bottom ? STEREO_POLICY_LAYOUT_TOP_AND_BOTTOM
+                                                     : STEREO_POLICY_LAYOUT_SIDE_BY_SIDE_QUINCUNX;
+    double sar = mlt_frame_get_aspect_ratio(frame);
+    int sar_num = sar > 0 ? (int) (sar * 10000 + 0.5) : 0;
+    return stereo_policy_video_views(width, height, sar_num, 10000, 0, 0, STEREO_POLICY_UPSAMPLED_UNKNOWN, layout, NULL) == 1;
+#else
+    return 0;
+#endif
+}
+
+static void view_size(mlt_frame frame, packing_t packing, int width, int height, int *view_width, int *view_height)
+{
     *view_width = width;
     *view_height = height;
-    if ((packing == packing_side_by_side || packing == packing_side_by_side_quincunx) && aspect >= 2.5)
-        *view_width = width / 2;
-    else if (packing == packing_top_and_bottom && aspect <= 1.2)
+    if (packing != packing_side_by_side && packing != packing_side_by_side_quincunx && packing != packing_top_and_bottom)
+        return;
+    if (!full_views(frame, packing, width, height))
+        return;
+    if (packing == packing_top_and_bottom)
         *view_height = height / 2;
+    else
+        *view_width = width / 2;
 }
 
 // The samples one view has in the frame, slot 0 being the first view of the packing and 1 the second. The first view
@@ -189,7 +215,7 @@ static int filter_get_image(mlt_frame frame,
     const int sw = *width;
     const int sh = *height;
     int vw, vh;
-    view_size(packing, sw, sh, &vw, &vh);
+    view_size(frame, packing, sw, sh, &vw, &vh);
 
     // The views, left and right
     uint8_t *eyes[2] = {NULL, NULL};

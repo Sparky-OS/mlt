@@ -72,6 +72,11 @@ if(WIN32)
   target_include_directories(mltcore PRIVATE ../../win32)
 endif()
 
+if(STEREO_POLICY_FOUND)
+  target_compile_definitions(mltcore PRIVATE HAVE_STEREO_POLICY)
+  target_link_libraries(mltcore PRIVATE PkgConfig::STEREO_POLICY)
+endif()
+
 if(CPU_SSE)
   target_compile_definitions(mltcore PRIVATE USE_SSE)
 endif()
