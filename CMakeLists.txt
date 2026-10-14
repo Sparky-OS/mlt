@@ -201,6 +201,8 @@ if (MSVC)
 endif ()
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
+# Sparky Stereo OS's stereo policy decides whether the views of a packed 3D video are full or half size
+pkg_check_modules(STEREO_POLICY IMPORTED_TARGET stereo-policy)
 
 if(WIN32)
   find_package(Iconv REQUIRED)

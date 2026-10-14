@@ -51,6 +51,11 @@ if(WIN32)
   endif()
 endif()
 
+if(STEREO_POLICY_FOUND)
+  target_compile_definitions(mltavformat PRIVATE HAVE_STEREO_POLICY)
+  target_link_libraries(mltavformat PRIVATE PkgConfig::STEREO_POLICY)
+endif()
+
 if(USE_AVDEVICE AND AVDEVICE_FOUND)
   target_compile_definitions(mltavformat PRIVATE USE_AVDEVICE)
 endif()

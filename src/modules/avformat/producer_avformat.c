@@ -51,6 +51,9 @@
 #include <libavutil/pixdesc.h>
 #include <libavutil/samplefmt.h>
 #include <libavutil/stereo3d.h>
+#ifdef HAVE_STEREO_POLICY
+#include <stereo-policy.h>
+#endif
 #include <libavutil/version.h>
 #include <libswscale/swscale.h>
 
@@ -185,11 +188,47 @@ static const char *stereo3d_type_name(enum AVStereo3DType type)
     }
 }
 
+/** Whether the views of a side by side or top and bottom video are full size (1) or half size (0), by
+    what the stream says before the shape of the frame: the plane size of a Matroska track, which FFmpeg
+    folds into the sample aspect ratio, then the shape of the frame as shown (the stereo policy library,
+    which holds the one rule the edition's players share). -1 when there is no answer.
+*/
+static int stereo3d_full_views(const char *type, int width, int height, AVRational sar, int matroska)
+{
+#ifdef HAVE_STEREO_POLICY
+    int layout;
+    if (!strcmp(type, "side_by_side"))
+        layout = STEREO_POLICY_LAYOUT_SIDE_BY_SIDE;
+    else if (!strcmp(type, "top_and_bottom"))
+        layout = STEREO_POLICY_LAYOUT_TOP_AND_BOTTOM;
+    else if (!strcmp(type, "side_by_side_quincunx"))
+        layout = STEREO_POLICY_LAYOUT_SIDE_BY_SIDE_QUINCUNX;
+    else
+        return -1;
+    if (sar.num <= 0 || sar.den <= 0)
+        sar = (AVRational) {0, 1};
+    int plane_width = 0, plane_height = 0;
+    if (matroska && layout != STEREO_POLICY_LAYOUT_SIDE_BY_SIDE_QUINCUNX)
+        stereo_policy_matroska_plane(width, height, sar.num, sar.den, layout, &plane_width, &plane_height);
+    return stereo_policy_video_views(width, height, sar.num, sar.den, plane_width, plane_height,
+                                     STEREO_POLICY_UPSAMPLED_UNKNOWN, layout, NULL);
+#else
+    return -1;
+#endif
+}
+
 /** Set the producer's stereoscopic 3D properties from the Stereo 3D side data of a stream or of a
     decoded frame. The frame packing arrangement SEI is sent with the keyframes and holds until
-    another one replaces it (H.264 D.2.26), so the properties keep what was last seen.
+    another one replaces it (H.264 D.2.26), so the properties keep what was last seen. views is
+    "meta.media.stereo3d.views": "full" or "half" for the packings that have both, when the shared rule
+    can say (the size of the frame, its sample aspect ratio and the container are what it is told).
 */
-static void set_stereo3d_properties(mlt_properties properties, const AVStereo3D *stereo)
+static void set_stereo3d_properties(mlt_properties properties,
+                                    const AVStereo3D *stereo,
+                                    int width,
+                                    int height,
+                                    AVRational sar,
+                                    int matroska)
 {
     const char *type = stereo3d_type_name(stereo->type);
     int invert = !!(stereo->flags & AV_STEREO3D_FLAG_INVERT);
@@ -198,6 +237,7 @@ static void set_stereo3d_properties(mlt_properties properties, const AVStereo3D 
         // Not stereoscopic, or a packing without a name here
         if (mlt_properties_get(properties, "meta.media.stereo3d.type"))
             mlt_properties_set(properties, "meta.media.stereo3d.type", NULL);
+        mlt_properties_clear(properties, "meta.media.stereo3d.views");
         return;
     }
     if (!mlt_properties_get(properties, "meta.media.stereo3d.type")
@@ -206,16 +246,22 @@ static void set_stereo3d_properties(mlt_properties properties, const AVStereo3D 
         mlt_properties_set(properties, "meta.media.stereo3d.type", type);
         mlt_properties_set_int(properties, "meta.media.stereo3d.invert", invert);
     }
+    const int full = stereo3d_full_views(type, width, height, sar, matroska);
+    if (full >= 0)
+        mlt_properties_set(properties, "meta.media.stereo3d.views", full ? "full" : "half");
+    else
+        mlt_properties_clear(properties, "meta.media.stereo3d.views");
 }
 
 static void set_frame_stereo3d_properties(mlt_properties properties,
                                           mlt_properties frame_properties,
-                                          const AVFrame *frame)
+                                          const AVFrame *frame,
+                                          int matroska)
 {
     const AVFrameSideData *sd = av_frame_get_side_data(frame, AV_FRAME_DATA_STEREO3D);
     if (sd && sd->size >= sizeof(AVStereo3D)) {
         const AVStereo3D *stereo = (const AVStereo3D *) sd->data;
-        set_stereo3d_properties(properties, stereo);
+        set_stereo3d_properties(properties, stereo, frame->width, frame->height, frame->sample_aspect_ratio, matroska);
         // A frame of a frame sequence (temporal interleaving, H.264 D.2.26) holds one view, which the SEI names
         if (stereo->view == AV_STEREO3D_VIEW_LEFT)
             mlt_properties_set(frame_properties, "meta.media.stereo3d.view", "left");
@@ -655,7 +701,13 @@ static mlt_properties find_default_streams(producer_avformat self)
                                                                          codec_params->nb_coded_side_data,
                                                                          AV_PKT_DATA_STEREO3D);
                 if (stereo && stereo->size >= sizeof(AVStereo3D))
-                    set_stereo3d_properties(meta_media, (const AVStereo3D *) stereo->data);
+                    set_stereo3d_properties(meta_media,
+                                            (const AVStereo3D *) stereo->data,
+                                            codec_params->width,
+                                            codec_params->height,
+                                            context->streams[i]->sample_aspect_ratio,
+                                            context->iformat && context->iformat->name
+                                                && strstr(context->iformat->name, "matroska"));
             }
             //				snprintf( key, sizeof(key), "meta.media.%u.codec.frame_rate", i );
             //				AVRational frame_rate = { codec_context->time_base.den, codec_context->time_base.num * codec_context->ticks_per_frame };
@@ -3209,7 +3261,12 @@ static int producer_get_image(mlt_frame frame,
             // Now handle the picture if we have one
             if (got_picture) {
                 // What the picture, the one this frame is made of, says about stereoscopic 3D
-                set_frame_stereo3d_properties(properties, frame_properties, self->video_frame);
+                set_frame_stereo3d_properties(properties,
+                                              frame_properties,
+                                              self->video_frame,
+                                              self->video_format && self->video_format->iformat
+                                                  && self->video_format->iformat->name
+                                                  && strstr(self->video_format->iformat->name, "matroska"));
                 // Detect and correct scan type
                 if (mlt_properties_get(properties, "force_progressive")) {
                     self->progressive = !!mlt_properties_get_int(properties, "force_progressive");
