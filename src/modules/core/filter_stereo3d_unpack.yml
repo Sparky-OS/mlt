@@ -33,7 +33,11 @@ parameters:
   - identifier: output
     title: Output
     type: string
-    description: left, right, or side_by_side (both views, the left eye first)
+    description: >
+      left, right, or side_by_side (both views, the left eye first, each at the
+      resolution the frame carries it, never scaled: a half top-and-bottom
+      1920x1080 frame gives 3840x540, its sample aspect ratio the shape of a view;
+      left and right give one view restored to the size of a view)
     default: side_by_side
     mutable: yes
   - identifier: resource

@@ -270,16 +270,26 @@ static int filter_get_image(mlt_frame frame,
             stored_width = sw / 2;
         if (packing == packing_top_and_bottom || packing == packing_lines)
             stored_height = sh / 2;
+        // Both views side by side go to a stereo surface at the resolution the frame carries them, never scaled: the
+        // compositor resizes them once, so a half view stays half and the frame's sample aspect ratio says its shape.
+        // A single view is shown as an ordinary picture, restored to the size of a view.
+        const int keep = sbs;
+        if (keep) {
+            eye_width = stored_width;
+            eye_height = stored_height;
+            mlt_frame_set_aspect_ratio(frame,
+                                       mlt_frame_get_aspect_ratio(frame) * vw / stored_width * stored_height / vh);
+        }
         uint8_t *stored = mlt_pool_alloc((size_t) stored_width * stored_height * 4);
         for (int slot = 0; slot < 2; slot++) {
             stored_view(*image, sw, sh, packing, slot, stored, stored_width, stored_height);
             // The first view is the left eye's unless the stream says the right eye's comes first
             uint8_t **eye = &eyes[slot ^ (invert ? 1 : 0)];
-            *eye = mlt_pool_alloc((size_t) vw * vh * 4);
-            if (stored_width == vw && stored_height == vh)
-                memcpy(*eye, stored, (size_t) vw * vh * 4);
+            *eye = mlt_pool_alloc((size_t) eye_width * eye_height * 4);
+            if (stored_width == eye_width && stored_height == eye_height)
+                memcpy(*eye, stored, (size_t) eye_width * eye_height * 4);
             else
-                scale_view(stored, stored_width, stored_height, *eye, vw, vh);
+                scale_view(stored, stored_width, stored_height, *eye, eye_width, eye_height);
         }
         mlt_pool_release(stored);
     }
